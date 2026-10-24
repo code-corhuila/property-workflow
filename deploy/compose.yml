@@ -1,0 +1,17 @@
+# This service only. property-infra-postgres includes this file to compose the platform.
+
+services:
+  workflow:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      PORT: "3006"
+    # expose, not ports: only the gateway is reachable from the host.
+    expose: ["3006"]
+    networks: [platform]
+
+networks:
+  platform:
+    name: platform
+    external: true
