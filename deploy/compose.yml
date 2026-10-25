@@ -11,6 +11,24 @@ services:
     expose: ["3006"]
     networks: [platform]
 
+  # The migration runner of the schema workflow (ADR-010). The instance is shared
+  # and defined in property-infra-postgres; this file defines no database.
+  workflow-db-migrate:
+    image: liquibase/liquibase:4.29
+    profiles: [tooling]             # migrating is a deliberate act: `up` never starts it
+    volumes:
+      - ./db:/workspace:ro
+    entrypoint: ["liquibase",
+      "--search-path=/workspace",
+      "--changelog-file=changelog/changelog-master.yaml",
+      "--url=jdbc:postgresql://postgres:5432/${PG_DATABASE:?set PG_DATABASE}",
+      "--username=${PG_ADMIN_USER:?set PG_ADMIN_USER}",
+      "--password=${PG_ADMIN_PASSWORD:?set PG_ADMIN_PASSWORD}",
+      "--database-changelog-table-name=databasechangelog_workflow",
+      "--database-changelog-lock-table-name=databasechangeloglock_workflow"]
+    command: ["update"]
+    networks: [platform]
+
 networks:
   platform:
     name: platform

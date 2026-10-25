@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: ddl-tables-001
+      author: Stiven700
+      labels: "HU-SAGA-001,ddl,tables"
+      comment: "saga_instance: the state of each Saga, updated after every step and compensation."
+      changes:
+        - sqlFile:
+            path: 001_create_saga_instance.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sqlFile:
+            path: ../../05_rollbacks/01_ddl/03_tables/001_create_saga_instance.rollback.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false

@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: ddl-schemas-001
+      author: Stiven700
+      labels: "HU-SAGA-001,ddl,schemas"
+      comment: "Create the workflow schema: the state of the Sagas (ADR-010)."
+      changes:
+        - sqlFile:
+            path: 001_create_schema_workflow.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sqlFile:
+            path: ../../05_rollbacks/01_ddl/01_schemas/001_create_schema_workflow.rollback.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
