@@ -1,2 +1,15 @@
 server:
   port: ${PORT:3006}            # workflow:3006 inside the network platform (deployment.md)
+  shutdown: graceful            # stop accepting, let in-flight requests finish
+  tomcat:
+    connection-timeout: 5s      # time to receive the request line and headers
+    keep-alive-timeout: 60s
+    threads:
+      max: 200
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+logging:
+  structured:
+    format:
+      console: ecs              # one JSON object per line; the MDC adds correlationId
