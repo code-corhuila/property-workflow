@@ -51,6 +51,23 @@ docker build -f deploy/Dockerfile -t workflow .
 Inside the network `platform` the workflow is `http://workflow:3006`; from outside
 it is reached only through the gateway, at `http://localhost:8080/api/v1/sagas`.
 
+## The schema `workflow`
+
+`property-workflow` is not a domain and has no `-db` repository, so the
+migrations of its schema live here, in `deploy/db/`, with the folder structure of
+Annex A (ADR-010): `saga_instance`, its index, and the roles `workflow_reader` and
+`workflow_writer`, the latter granted to `workflow_app`. The instance, its
+extensions and the user `workflow_app` belong to `property-infra-postgres`.
+
+```bash
+# from property-infra-postgres, with the instance up
+docker compose --env-file env/dev.env run --rm workflow-db-migrate
+```
+
+`.github/workflows/db-ci.yml` rebuilds the schema from empty on every pull request
+that changes `deploy/db/`: apply, apply again with no change, the SQL checks in
+`deploy/db/tests/`, roll everything back, apply again.
+
 ## Branching
 
 Three permanent branches. **None of them accepts a direct commit** — you enter through a child
