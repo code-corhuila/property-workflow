@@ -1,0 +1,262 @@
+openapi: 3.0.3
+info:
+  title: Workflow API
+  version: 1.0.0
+  description: |
+    Entry contract of property-workflow, the orchestrator of the Saga
+    `reservar` (ADR-009). It is the only way to make a reservation: the
+    client starts the Saga here and the workflow drives Booking and Payment.
+
+    | # | Step id | Call to the participant | Compensation |
+    |---|---|---|---|
+    | 1 | `crear-reserva` | `POST /reservas` on booking | `POST /reservas/{id}/cancelar` |
+    | 2 | `cobrar` | `POST /pagos` on payment | `POST /pagos/{id}/reembolsos` |
+    | 3 | `confirmar-reserva` | `POST /reservas/{id}/confirmar` on booking | none — last step |
+
+    The workflow behaves like an `-api` at its entry (norm, Annex E): it
+    validates the JWT itself, validates the body field by field and answers
+    with the single error envelope. Towards the participants it sends its own
+    service token, an `Idempotency-Key` derived from the Saga on every step
+    and compensation, and the `X-Correlation-Id` of the request. What it
+    does with each answer of a participant, and how it recovers after a
+    restart, is in workflow-endpoint-fiches.md.
+
+    The request is synchronous: the answer arrives when the Saga has ended.
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Through the API Gateway, in `develop` (05-architecture/deployment.md)
+  - url: http://workflow:3006/api/v1
+    description: Inside the network `platform`
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Sagas
+    description: Start and reading of a Saga
+  - name: Health
+    description: Health check of the workflow
+
+paths:
+  /health:
+    servers:
+      - url: http://workflow:3006
+        description: At the root of the service, outside `/api/v1` and not routed by the gateway
+    get:
+      summary: Health check
+      description: Answers without a token. A dependency that is down is reported inside the `200` body.
+      operationId: getHealth
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: The workflow is running
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  timestamp:
+                    $ref: './_shared.yaml#/components/schemas/Timestamp'
+                  dependencies:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        enum: [ok, degraded, down]
+                        description: Schema `workflow`, where the state of each Saga is kept (ADR-010)
+
+  /sagas/reservar:
+    post:
+      summary: Start the Saga `reservar`
+      description: >
+        Called by a person (GUEST, HOST or ADMIN) from the checkout screen.
+        The guest is the `sub` of the token: the body carries no user id and
+        no amount. The workflow runs the three steps in order and persists
+        the Saga after each one. If a step fails, it compensates in reverse
+        order, and the answer is still `201`: read `status` to know the
+        outcome.
+      operationId: iniciarSagaReservar
+      tags: [Sagas]
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IniciarReservarRequest'
+            example:
+              propiedadId: a1d5e2f0-3333-4c3e-9a2d-000000000003
+              fechaInicio: '2026-09-10'
+              fechaFin: '2026-09-15'
+              huespedes: 2
+              metodoPago: TARJETA_CREDITO
+              tokenPago: tok_visa
+      responses:
+        '200':
+          description: >
+            The `Idempotency-Key` was already used: the same Saga is returned
+            and no step runs again (ADR-009, rule 2).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SagaResponse'
+        '201':
+          description: >
+            The Saga was created. It has ended — `COMPLETED`, `COMPENSATED`
+            or `FAILED` — unless the time limit of the request was reached
+            first: then it is still `RUNNING` and is read with `GET /sagas/{id}`.
+          headers:
+            Location:
+              description: Route of the Saga created
+              schema:
+                type: string
+                example: /api/v1/sagas/35920dc9-bd55-41a0-8e41-5832377383e5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SagaResponse'
+              examples:
+                completed:
+                  summary: The reservation is confirmed
+                  value:
+                    id: 35920dc9-bd55-41a0-8e41-5832377383e5
+                    reservaId: 9cfcfeec-c4b6-4d76-a0b4-f0db602d7caa
+                    pagoId: 550e8400-e29b-41d4-a716-446655440000
+                    status: COMPLETED
+                    completedSteps: [crear-reserva, cobrar, confirmar-reserva]
+                    createdAt: '2026-09-10T14:30:00Z'
+                    updatedAt: '2026-09-10T14:30:04Z'
+                compensated:
+                  summary: The charge was rejected and the Reserva was cancelled
+                  value:
+                    id: 35920dc9-bd55-41a0-8e41-5832377383e5
+                    reservaId: 9cfcfeec-c4b6-4d76-a0b4-f0db602d7caa
+                    pagoId: 550e8400-e29b-41d4-a716-446655440000
+                    status: COMPENSATED
+                    completedSteps: [crear-reserva]
+                    failedStep: cobrar
+                    createdAt: '2026-09-10T14:30:00Z'
+                    updatedAt: '2026-09-10T14:30:03Z'
+        '400':
+          $ref: './_shared.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './_shared.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './_shared.yaml#/components/responses/Forbidden'
+        '500':
+          $ref: './_shared.yaml#/components/responses/InternalError'
+
+  /sagas/{id}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/IdParam'
+
+    get:
+      summary: Get a Saga by id
+      description: Allowed to the guest who started it and to an ADMIN.
+      operationId: getSagaById
+      tags: [Sagas]
+      responses:
+        '200':
+          description: The Saga
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SagaResponse'
+        '400':
+          $ref: './_shared.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './_shared.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './_shared.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './_shared.yaml#/components/responses/NotFound'
+
+components:
+  schemas:
+    IniciarReservarRequest:
+      type: object
+      required: [propiedadId, fechaInicio, fechaFin, huespedes, metodoPago, tokenPago]
+      properties:
+        propiedadId:
+          $ref: './_shared.yaml#/components/schemas/UUID'
+        fechaInicio:
+          type: string
+          format: date
+          description: Check-in day, included
+        fechaFin:
+          type: string
+          format: date
+          description: Check-out day, not included. Must be after `fechaInicio` (07-api/guidelines.md, D-C4).
+        huespedes:
+          type: integer
+          minimum: 1
+          maximum: 20
+        metodoPago:
+          type: string
+          enum: [TARJETA_CREDITO, TARJETA_DEBITO]
+        tokenPago:
+          type: string
+          description: >
+            Card token created by the gateway's own library in the browser.
+            Card data never reaches this system. The token is passed to
+            Payment in step `cobrar` and is neither stored nor logged.
+
+    SagaResponse:
+      description: >
+        State of a Saga. It never carries the internal detail of a failure —
+        server names and error codes stay in the Saga state and in the log
+        (ADR-009, rule 9).
+      type: object
+      required: [id, status, completedSteps, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: './_shared.yaml#/components/schemas/UUID'
+        reservaId:
+          allOf:
+            - $ref: './_shared.yaml#/components/schemas/UUID'
+          description: Present once step `crear-reserva` is done. Read the Reserva with `GET /reservas/{id}`.
+        pagoId:
+          allOf:
+            - $ref: './_shared.yaml#/components/schemas/UUID'
+          description: Present once step `cobrar` recorded a Pago, approved or rejected.
+        reembolsoId:
+          allOf:
+            - $ref: './_shared.yaml#/components/schemas/UUID'
+          description: Present when the charge was made and then refunded by a compensation.
+        status:
+          type: string
+          description: >
+            `RUNNING` while steps are in progress; `COMPLETED` when the
+            Reserva is CONFIRMADA; `COMPENSATED` when a step failed and
+            what was done was undone; `FAILED` when a compensation failed, or
+            the workflow cannot establish the outcome of a charge or of a
+            confirmation, and a person must decide.
+          enum: [RUNNING, COMPLETED, COMPENSATED, FAILED]
+        completedSteps:
+          type: array
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/StepId'
+        failedStep:
+          allOf:
+            - $ref: '#/components/schemas/StepId'
+          description: The step that failed. Absent when `status` is `COMPLETED`.
+        createdAt:
+          $ref: './_shared.yaml#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: './_shared.yaml#/components/schemas/Timestamp'
+
+    StepId:
+      type: string
+      enum: [crear-reserva, cobrar, confirmar-reserva]
+
+  securitySchemes:
+    bearerAuth:
+      $ref: './_shared.yaml#/components/securitySchemes/bearerAuth'
