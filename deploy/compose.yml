@@ -7,6 +7,8 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       PORT: "3006"
+      # Public key of identity-service, one line with \n escapes. Never versioned.
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?set JWT_PUBLIC_KEY}
     # expose, not ports: only the gateway is reachable from the host.
     expose: ["3006"]
     networks: [platform]
