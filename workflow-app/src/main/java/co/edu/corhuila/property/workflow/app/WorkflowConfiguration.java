@@ -3,6 +3,9 @@ package co.edu.corhuila.property.workflow.app;
 import co.edu.corhuila.property.workflow.adapter.in.http.AuthFilter;
 import co.edu.corhuila.property.workflow.adapter.in.http.CorrelationFilter;
 import co.edu.corhuila.property.workflow.adapter.in.http.Rs256Verifier;
+import co.edu.corhuila.property.workflow.adapter.out.persistence.InMemorySagaStore;
+import co.edu.corhuila.property.workflow.adapter.out.persistence.JdbcSagaStore;
+import co.edu.corhuila.property.workflow.application.port.out.SagaStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -20,6 +23,26 @@ import org.springframework.core.Ordered;
  */
 @Configuration
 public class WorkflowConfiguration {
+
+    /**
+     * PERSISTENCE=postgres (the default) needs DATABASE_URL, DATABASE_USER (workflow_app
+     * in the platform) and DATABASE_PASSWORD: without them the workflow does not start.
+     * PERSISTENCE=memory is for tests and local development only (norm 5.5.2).
+     */
+    @Bean
+    Storage storage(@Value("${workflow.persistence:postgres}") String persistence,
+                    @Value("${workflow.database.url:}") String url,
+                    @Value("${workflow.database.user:}") String user,
+                    @Value("${workflow.database.password:}") String password,
+                    @Value("${workflow.database.pool-max:10}") int poolMax,
+                    @Value("${workflow.database.statement-timeout-ms:5000}") int statementTimeoutMs) {
+        return Storage.connect(persistence, url, user, password, poolMax, statementTimeoutMs);
+    }
+
+    @Bean
+    SagaStore sagaStore(Storage storage) {
+        return storage.inMemory() ? new InMemorySagaStore() : new JdbcSagaStore(storage.jdbc());
+    }
 
     /**
      * JWT_PUBLIC_KEY (the PEM itself; a one-line value with literal \n escapes, as

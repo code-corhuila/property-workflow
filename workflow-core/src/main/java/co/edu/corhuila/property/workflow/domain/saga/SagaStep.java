@@ -17,4 +17,14 @@ public enum SagaStep {
     public String id() {
         return id;
     }
+
+    /** The step of a stored step id. */
+    public static SagaStep fromId(String id) {
+        for (SagaStep step : values()) {
+            if (step.id.equals(id)) {
+                return step;
+            }
+        }
+        throw new IllegalArgumentException("unknown step " + id);
+    }
 }
