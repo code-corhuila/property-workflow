@@ -42,6 +42,20 @@ Without Maven installed:
 docker run --rm -v "$PWD":/app -w /app maven:3.9-eclipse-temurin-21 mvn -B verify
 ```
 
+### Integration tests
+
+The integration tests run against the real engine with the schema `workflow` of
+`deploy/db` applied, as `workflow_app`, and only when `TEST_DATABASE_URL` is set;
+otherwise they are skipped (Annex C). CI prepares that database on every Pull Request.
+Locally, from the root of this repository:
+
+```bash
+scripts/test-db.sh            # PostgreSQL 16 on 127.0.0.1:55435 with the workflow schema
+TEST_DATABASE_URL=jdbc:postgresql://localhost:55435/property TEST_DATABASE_USER=workflow_app \
+  TEST_DATABASE_PASSWORD=test-only mvn -B verify
+scripts/test-db.sh down
+```
+
 The image:
 
 ```bash

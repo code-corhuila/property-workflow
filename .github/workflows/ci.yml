@@ -19,8 +19,41 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The integration tests run against the real engine with the schema workflow of
+    # deploy/db applied (Annex C, ADR-010): the same PostgreSQL major version,
+    # prepared the way property-infra-postgres prepares the shared instance.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: property
+          POSTGRES_USER: property_admin
+          POSTGRES_PASSWORD: ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U property_admin -d property"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/property
+      TEST_DATABASE_USER: workflow_app
+      TEST_DATABASE_PASSWORD: ci-only
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare the instance and apply the workflow schema
+        run: |
+          docker run --rm -i --network host -e PGPASSWORD=ci-only postgres:16 \
+            psql -h localhost -U property_admin -d property -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE ROLE workflow_app LOGIN PASSWORD 'ci-only';
+          ALTER ROLE workflow_app SET search_path = workflow;
+          SQL
+          docker run --rm --network host -v "$PWD/deploy/db:/workspace:ro" liquibase/liquibase:4.29 \
+            --search-path=/workspace --changelog-file=changelog/changelog-master.yaml \
+            --url=jdbc:postgresql://localhost:5432/property \
+            --username=property_admin --password=ci-only \
+            --database-changelog-table-name=databasechangelog_workflow \
+            --database-changelog-lock-table-name=databasechangeloglock_workflow update
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
