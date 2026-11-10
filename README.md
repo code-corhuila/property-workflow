@@ -12,7 +12,7 @@ reverse order. Java 21 and Spring Boot 3.5, as a three-module Maven build (ADR-0
 
 ```
 workflow-core/       domain/saga (the state of a Saga) · application: ports + the orchestrator — no Spring
-workflow-adapters/   in/http: the Saga endpoints · out/participants: Booking and Payment clients · out/state: saga store
+workflow-adapters/   in/http: the Saga endpoints · out/participants: Booking and Payment clients · out/persistence: the schema workflow (in memory only with PERSISTENCE=memory)
 workflow-app/        Spring Boot application: the composition root
 deploy/              Dockerfile and this service's compose file
 ```

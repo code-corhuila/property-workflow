@@ -1,6 +1,8 @@
 package co.edu.corhuila.property.workflow.application.port.out;
 
 import co.edu.corhuila.property.workflow.domain.saga.SagaInstance;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,4 +21,11 @@ public interface SagaStore {
     void save(SagaInstance saga);
 
     Optional<SagaInstance> get(UUID id);
+
+    /**
+     * Sagas still RUNNING that nothing touched since that instant: the request that
+     * started them ran out of time, or the workflow restarted (HU-SAGA-004). Oldest
+     * first, never more than the limit.
+     */
+    List<SagaInstance> findStale(Instant updatedBefore, int limit);
 }

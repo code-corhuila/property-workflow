@@ -95,6 +95,8 @@ class RunReservarSagaTest {
         }
         public void save(SagaInstance saga) { saves.add(saga.status() + " " + saga.completedSteps()); }
         public Optional<SagaInstance> get(UUID id) { return Optional.ofNullable(byId.get(id)); }
+        @Override
+        public List<SagaInstance> findStale(java.time.Instant before, int limit) { return List.of(); }
     }
 
     static Supplier<?> rejected(int status) {

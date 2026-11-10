@@ -1,6 +1,7 @@
 package co.edu.corhuila.property.workflow.domain.saga;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -24,14 +25,46 @@ public final class SagaInstance {
     private UUID reservaId;
     private UUID pagoId;
     private UUID reembolsoId;
-    private final Instant createdAt = Instant.now();
-    private Instant updatedAt = createdAt;
+    private final Instant createdAt;
+    private Instant updatedAt;
 
     public SagaInstance(UUID id, UUID guestId, String idempotencyKey, String correlationId) {
         this.id = id;
         this.guestId = guestId;
         this.idempotencyKey = idempotencyKey;
         this.correlationId = correlationId;
+        this.createdAt = now();
+        this.updatedAt = createdAt;
+    }
+
+    private SagaInstance(UUID id, UUID guestId, String idempotencyKey, String correlationId, Instant createdAt) {
+        this.id = id;
+        this.guestId = guestId;
+        this.idempotencyKey = idempotencyKey;
+        this.correlationId = correlationId;
+        this.createdAt = createdAt;
+    }
+
+    /** Rebuilds a Saga the persistence adapter read, as it was after its last save. */
+    public static SagaInstance restore(UUID id, UUID guestId, String idempotencyKey, String correlationId,
+                                       SagaStatus status, List<SagaStep> completedSteps, SagaStep failedStep,
+                                       String errorDetail, UUID reservaId, UUID pagoId, UUID reembolsoId,
+                                       Instant createdAt, Instant updatedAt) {
+        SagaInstance saga = new SagaInstance(id, guestId, idempotencyKey, correlationId, createdAt);
+        saga.status = status;
+        saga.completedSteps.addAll(completedSteps);
+        saga.failedStep = failedStep;
+        saga.errorDetail = errorDetail;
+        saga.reservaId = reservaId;
+        saga.pagoId = pagoId;
+        saga.reembolsoId = reembolsoId;
+        saga.updatedAt = updatedAt;
+        return saga;
+    }
+
+    /** Microseconds: the precision PostgreSQL keeps, so a stored Saga reads back equal. */
+    private static Instant now() {
+        return Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     /** Idempotency-Key of a step: a retried step never creates nor charges twice. */
@@ -80,7 +113,7 @@ public final class SagaInstance {
     }
 
     private void touch() {
-        updatedAt = Instant.now();
+        updatedAt = now();
     }
 
     public UUID id() { return id; }
