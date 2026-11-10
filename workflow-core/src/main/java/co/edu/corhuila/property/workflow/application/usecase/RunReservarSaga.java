@@ -4,6 +4,8 @@ import static co.edu.corhuila.property.workflow.domain.saga.SagaStep.COBRAR;
 import static co.edu.corhuila.property.workflow.domain.saga.SagaStep.CONFIRMAR_RESERVA;
 import static co.edu.corhuila.property.workflow.domain.saga.SagaStep.CREAR_RESERVA;
 
+import co.edu.corhuila.property.workflow.application.port.in.AccessDeniedException;
+import co.edu.corhuila.property.workflow.application.port.in.Caller;
 import co.edu.corhuila.property.workflow.application.port.in.GetSaga;
 import co.edu.corhuila.property.workflow.application.port.in.StartReservarSaga;
 import co.edu.corhuila.property.workflow.application.port.out.IdGenerator;
@@ -17,6 +19,9 @@ import co.edu.corhuila.property.workflow.application.port.out.Participants.StepU
 import co.edu.corhuila.property.workflow.application.port.out.SagaStore;
 import co.edu.corhuila.property.workflow.domain.saga.SagaInstance;
 import co.edu.corhuila.property.workflow.domain.saga.UnknownSagaException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,17 +41,64 @@ public class RunReservarSaga implements StartReservarSaga, GetSaga {
     private final Payment payment;
     private final SagaStore store;
     private final IdGenerator ids;
+    private final Clock clock;
+    private final Duration requestLimit;
 
     public RunReservarSaga(Booking booking, Payment payment, SagaStore store, IdGenerator ids) {
+        this(booking, payment, store, ids, Clock.systemUTC(), Duration.ofDays(1));
+    }
+
+    /**
+     * requestLimit: the time limit of the request that starts a Saga. When it is reached
+     * the request stops acting on the Saga, which stays RUNNING for the recovery routine
+     * (workflow-endpoint-fiches.md, Recovery). It is checked before every call, so the
+     * request may outlive it by at most one call to a participant.
+     */
+    public RunReservarSaga(Booking booking, Payment payment, SagaStore store, IdGenerator ids, Clock clock,
+                           Duration requestLimit) {
         this.booking = booking;
         this.payment = payment;
         this.store = store;
         this.ids = ids;
+        this.clock = clock;
+        this.requestLimit = requestLimit;
+    }
+
+    /** The time limit of the request was reached: stop, and leave the Saga RUNNING. */
+    private static final class OutOfTime extends RuntimeException {
+        OutOfTime() {
+            super(null, null, false, false);
+        }
+    }
+
+    /** Per request thread: the bean serves concurrent requests, and the recovery routine has no limit. */
+    private final ThreadLocal<Instant> deadline = ThreadLocal.withInitial(() -> Instant.MAX);
+
+    private void checkTime() {
+        if (clock.instant().isAfter(deadline.get())) {
+            throw new OutOfTime();
+        }
     }
 
     @Override
     public SagaInstance get(UUID id) {
         return store.get(id).orElseThrow(() -> new UnknownSagaException(id));
+    }
+
+    @Override
+    public SagaInstance get(Caller caller, UUID id) {
+        UUID person = caller.personId();
+        SagaInstance saga = get(id);
+        if (!caller.isAdmin() && !saga.guestId().equals(person)) {
+            throw new AccessDeniedException("the saga belongs to another guest");
+        }
+        return saga;
+    }
+
+    @Override
+    public StartResult start(Caller caller, IniciarReservar r) {
+        return start(new IniciarReservar(caller.personId(), r.propiedadId(), r.fechaInicio(), r.fechaFin(),
+                r.huespedes(), r.metodoPago(), r.tokenPago(), r.idempotencyKey(), r.correlationId()));
     }
 
     @Override
@@ -57,7 +109,14 @@ public class RunReservarSaga implements StartReservarSaga, GetSaga {
             return new StartResult(created.saga(), false); // a retry of the request: no step runs again
         }
         SagaInstance saga = created.saga();
-        run(saga, r);
+        deadline.set(clock.instant().plus(requestLimit));
+        try {
+            run(saga, r);
+        } catch (OutOfTime e) {
+            // RUNNING: the recovery routine settles it; the answer says so (HU-SAGA-004, scenario 3).
+        } finally {
+            deadline.remove();
+        }
         store.save(saga);
         return new StartResult(saga, true);
     }
@@ -78,6 +137,7 @@ public class RunReservarSaga implements StartReservarSaga, GetSaga {
         saga.reservaCreada(reserva.reservaId());
         saga.stepDone(CREAR_RESERVA);
         store.save(saga);
+        checkTime();
 
         PagoRegistrado pago;
         try {
@@ -100,6 +160,7 @@ public class RunReservarSaga implements StartReservarSaga, GetSaga {
         }
         saga.stepDone(COBRAR);
         store.save(saga);
+        checkTime();
 
         try {
             booking.confirmar(reserva.reservaId(), saga.keyOf(CONFIRMAR_RESERVA), corr);
@@ -126,6 +187,7 @@ public class RunReservarSaga implements StartReservarSaga, GetSaga {
      * Saga ends FAILED and a person decides.
      */
     private void settle(SagaInstance saga) {
+        checkTime();
         EstadoReserva estado;
         Optional<PagoRegistrado> pago;
         try {
@@ -166,6 +228,7 @@ public class RunReservarSaga implements StartReservarSaga, GetSaga {
 
     /** Compensation of cobrar. After a failed refund the cancel is not attempted: the worker frees the dates. */
     private boolean refund(SagaInstance saga) {
+        checkTime();
         try {
             saga.reembolsoRegistrado(payment.reembolsar(saga.pagoId(), saga.compensationKeyOf(COBRAR),
                     saga.correlationId()));
@@ -179,6 +242,7 @@ public class RunReservarSaga implements StartReservarSaga, GetSaga {
 
     /** Compensation of crear-reserva. A 422 means the Reserva left PENDIENTE: read it. */
     private void cancel(SagaInstance saga, String motivo) {
+        checkTime();
         try {
             booking.cancelar(saga.reservaId(), motivo, saga.compensationKeyOf(CREAR_RESERVA), saga.correlationId());
             saga.compensated();
