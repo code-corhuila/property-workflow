@@ -11,6 +11,7 @@ import co.edu.corhuila.property.workflow.adapter.out.persistence.JdbcSagaStore;
 import co.edu.corhuila.property.workflow.application.port.out.Participants.Booking;
 import co.edu.corhuila.property.workflow.application.port.out.Participants.Payment;
 import co.edu.corhuila.property.workflow.application.port.out.SagaStore;
+import co.edu.corhuila.property.workflow.application.usecase.RecoverStaleSagas;
 import co.edu.corhuila.property.workflow.application.usecase.RunReservarSaga;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -83,6 +84,24 @@ public class WorkflowConfiguration {
                                     @Value("${workflow.request-timeout-ms}") long requestTimeoutMs) {
         return new RunReservarSaga(booking, payment, store, UUID::randomUUID, Clock.systemUTC(),
                 Duration.ofMillis(requestTimeoutMs));
+    }
+
+    /**
+     * HU-SAGA-004: the Sagas left RUNNING are settled at start-up and every
+     * RECOVERY_INTERVAL_MS (60 s). One is stale after RECOVERY_STALE_AFTER_MS (60 s)
+     * without a save: longer than the request limit plus one call to a participant.
+     */
+    @Bean
+    RecoverStaleSagas recoverStaleSagas(SagaStore store, RunReservarSaga saga,
+                                        @Value("${workflow.recovery.stale-after-ms}") long staleAfterMs,
+                                        @Value("${workflow.recovery.batch}") int batch) {
+        return new RecoverStaleSagas(store, saga, Clock.systemUTC(), Duration.ofMillis(staleAfterMs), batch);
+    }
+
+    @Bean
+    RecoveryScheduler recoveryScheduler(RecoverStaleSagas recovery,
+                                        @Value("${workflow.recovery.interval-ms}") long intervalMs) {
+        return new RecoveryScheduler(recovery, Duration.ofMillis(intervalMs));
     }
 
     @Bean
