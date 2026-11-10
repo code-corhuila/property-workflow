@@ -9,6 +9,10 @@ services:
       PORT: "3006"
       # Public key of identity-service, one line with \n escapes. Never versioned.
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?set JWT_PUBLIC_KEY}
+      # The schema workflow of the single PostgreSQL instance, as workflow_app (ADR-010).
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${PG_DATABASE:?set PG_DATABASE}
+      DATABASE_USER: workflow_app
+      DATABASE_PASSWORD: ${WORKFLOW_APP_PASSWORD:?set WORKFLOW_APP_PASSWORD}
     # expose, not ports: only the gateway is reachable from the host.
     expose: ["3006"]
     networks: [platform]
