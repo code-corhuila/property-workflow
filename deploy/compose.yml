@@ -13,6 +13,10 @@ services:
       DATABASE_URL: jdbc:postgresql://postgres:5432/${PG_DATABASE:?set PG_DATABASE}
       DATABASE_USER: workflow_app
       DATABASE_PASSWORD: ${WORKFLOW_APP_PASSWORD:?set WORKFLOW_APP_PASSWORD}
+      # Its own credential towards Booking and Payment (D-C14, security-policy.md).
+      SERVICE_TOKEN: ${WORKFLOW_SERVICE_TOKEN:?set WORKFLOW_SERVICE_TOKEN}
+      BOOKING_URL: http://booking-api:3001
+      PAYMENT_URL: http://payment-api:3003
     # expose, not ports: only the gateway is reachable from the host.
     expose: ["3006"]
     networks: [platform]

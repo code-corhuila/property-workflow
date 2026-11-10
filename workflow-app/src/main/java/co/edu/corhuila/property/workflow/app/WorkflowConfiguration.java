@@ -3,13 +3,19 @@ package co.edu.corhuila.property.workflow.app;
 import co.edu.corhuila.property.workflow.adapter.in.http.AuthFilter;
 import co.edu.corhuila.property.workflow.adapter.in.http.CorrelationFilter;
 import co.edu.corhuila.property.workflow.adapter.in.http.Rs256Verifier;
+import co.edu.corhuila.property.workflow.adapter.out.participants.HttpBooking;
+import co.edu.corhuila.property.workflow.adapter.out.participants.HttpPayment;
+import co.edu.corhuila.property.workflow.adapter.out.participants.ParticipantClient;
 import co.edu.corhuila.property.workflow.adapter.out.persistence.InMemorySagaStore;
 import co.edu.corhuila.property.workflow.adapter.out.persistence.JdbcSagaStore;
+import co.edu.corhuila.property.workflow.application.port.out.Participants.Booking;
+import co.edu.corhuila.property.workflow.application.port.out.Participants.Payment;
 import co.edu.corhuila.property.workflow.application.port.out.SagaStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -37,6 +43,31 @@ public class WorkflowConfiguration {
                     @Value("${workflow.database.pool-max:10}") int poolMax,
                     @Value("${workflow.database.statement-timeout-ms:5000}") int statementTimeoutMs) {
         return Storage.connect(persistence, url, user, password, poolMax, statementTimeoutMs);
+    }
+
+    /**
+     * The workflow's own credential towards the participants: SERVICE_TOKEN, the token of
+     * svc-workflow (scope service, D-C14). Without it the workflow does not start. Every
+     * limit is configuration with a default: 10 s per call (longer than Payment's 8 s for
+     * a charge), 2 attempts, backoff from 200 ms.
+     */
+    @Bean
+    ParticipantClient.Limits participantLimits(@Value("${workflow.participants.timeout-ms}") long timeoutMs,
+                                               @Value("${workflow.participants.max-attempts}") int maxAttempts,
+                                               @Value("${workflow.participants.backoff-ms}") long backoffMs) {
+        return new ParticipantClient.Limits(Duration.ofMillis(timeoutMs), maxAttempts, Duration.ofMillis(backoffMs));
+    }
+
+    @Bean
+    Booking booking(@Value("${workflow.participants.booking-url}") String url,
+                    @Value("${workflow.participants.service-token:}") String token, ParticipantClient.Limits limits) {
+        return new HttpBooking(new ParticipantClient("booking", url, token, limits));
+    }
+
+    @Bean
+    Payment payment(@Value("${workflow.participants.payment-url}") String url,
+                    @Value("${workflow.participants.service-token:}") String token, ParticipantClient.Limits limits) {
+        return new HttpPayment(new ParticipantClient("payment", url, token, limits));
     }
 
     @Bean
