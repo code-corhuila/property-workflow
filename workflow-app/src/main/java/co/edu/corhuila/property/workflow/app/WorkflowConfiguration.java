@@ -11,11 +11,14 @@ import co.edu.corhuila.property.workflow.adapter.out.persistence.JdbcSagaStore;
 import co.edu.corhuila.property.workflow.application.port.out.Participants.Booking;
 import co.edu.corhuila.property.workflow.application.port.out.Participants.Payment;
 import co.edu.corhuila.property.workflow.application.port.out.SagaStore;
+import co.edu.corhuila.property.workflow.application.usecase.RunReservarSaga;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -68,6 +71,18 @@ public class WorkflowConfiguration {
     Payment payment(@Value("${workflow.participants.payment-url}") String url,
                     @Value("${workflow.participants.service-token:}") String token, ParticipantClient.Limits limits) {
         return new HttpPayment(new ParticipantClient("payment", url, token, limits));
+    }
+
+    /**
+     * The orchestrator of the Saga reservar (D3b). REQUEST_TIMEOUT_MS (25 s by default) is
+     * the limit of the request that starts a Saga: the three steps with their retries fit
+     * in it, and it is shorter than the time-out of the API Gateway.
+     */
+    @Bean
+    RunReservarSaga runReservarSaga(Booking booking, Payment payment, SagaStore store,
+                                    @Value("${workflow.request-timeout-ms}") long requestTimeoutMs) {
+        return new RunReservarSaga(booking, payment, store, UUID::randomUUID, Clock.systemUTC(),
+                Duration.ofMillis(requestTimeoutMs));
     }
 
     @Bean

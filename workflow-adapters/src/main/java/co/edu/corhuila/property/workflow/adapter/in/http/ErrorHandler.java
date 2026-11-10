@@ -1,6 +1,8 @@
 package co.edu.corhuila.property.workflow.adapter.in.http;
 
 import co.edu.corhuila.property.workflow.adapter.in.http.ApiError.ValidationException;
+import co.edu.corhuila.property.workflow.application.port.in.AccessDeniedException;
+import co.edu.corhuila.property.workflow.application.port.in.NotAuthenticatedException;
 import co.edu.corhuila.property.workflow.domain.saga.UnknownSagaException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +45,16 @@ public class ErrorHandler {
     }
 
     /** E-24: a Saga that does not exist. A failed step is never an error here: it is the status of the Saga. */
+    @ExceptionHandler(NotAuthenticatedException.class)
+    ResponseEntity<ApiError> notAuthenticated(NotAuthenticatedException e) {
+        return respond(HttpStatus.UNAUTHORIZED, ApiError.of(ApiError.UNAUTHORIZED, e.getMessage()));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<ApiError> forbidden(AccessDeniedException e) {
+        return respond(HttpStatus.FORBIDDEN, ApiError.of(ApiError.FORBIDDEN, e.getMessage()));
+    }
+
     @ExceptionHandler(UnknownSagaException.class)
     ResponseEntity<ApiError> unknownSaga(UnknownSagaException e) {
         return respond(HttpStatus.NOT_FOUND, ApiError.of(ApiError.NOT_FOUND, "the saga does not exist"));

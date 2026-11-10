@@ -19,4 +19,11 @@ public interface StartReservarSaga {
     record StartResult(SagaInstance saga, boolean created) { }
 
     StartResult start(IniciarReservar request);
+
+    /**
+     * E-23 for the caller of the request: only a person (GUEST, HOST or ADMIN) starts a
+     * reservation, and its guest is the sub of the token, whatever usuarioId says; a
+     * service credential gets 403 (D-C14).
+     */
+    StartResult start(Caller caller, IniciarReservar request);
 }
