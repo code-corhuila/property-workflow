@@ -27,3 +27,12 @@ workflow:
     password: ${DATABASE_PASSWORD:}
     pool-max: ${DB_POOL_MAX:10}
     statement-timeout-ms: ${DB_STATEMENT_TIMEOUT_MS:5000}
+  participants:
+    # Booking and Payment, inside the network platform. The workflow calls them with its
+    # own service token (SERVICE_TOKEN), never with the token of the guest.
+    booking-url: ${BOOKING_URL:http://booking-api:3001}
+    payment-url: ${PAYMENT_URL:http://payment-api:3003}
+    service-token: ${SERVICE_TOKEN:}
+    timeout-ms: ${PARTICIPANT_TIMEOUT_MS:10000}   # each call: longer than Payment's 8 s for a charge
+    max-attempts: ${PARTICIPANT_MAX_ATTEMPTS:2}   # only after no answer, 429 or 5xx; never after a 4xx
+    backoff-ms: ${PARTICIPANT_BACKOFF_MS:200}
