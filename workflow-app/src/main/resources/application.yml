@@ -29,6 +29,11 @@ workflow:
     statement-timeout-ms: ${DB_STATEMENT_TIMEOUT_MS:5000}
   # The limit of POST /sagas/reservar: then it answers the Saga still RUNNING (HU-SAGA-004).
   request-timeout-ms: ${REQUEST_TIMEOUT_MS:25000}
+  recovery:
+    # HU-SAGA-004: at start-up and then every interval, the Sagas left RUNNING are settled.
+    interval-ms: ${RECOVERY_INTERVAL_MS:60000}
+    stale-after-ms: ${RECOVERY_STALE_AFTER_MS:60000}   # > request limit + one call to a participant
+    batch: ${RECOVERY_BATCH:50}
   participants:
     # Booking and Payment, inside the network platform. The workflow calls them with its
     # own service token (SERVICE_TOKEN), never with the token of the guest.
