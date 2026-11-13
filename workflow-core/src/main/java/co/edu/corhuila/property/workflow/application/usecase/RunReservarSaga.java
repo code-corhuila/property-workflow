@@ -18,10 +18,12 @@ import co.edu.corhuila.property.workflow.application.port.out.Participants.StepR
 import co.edu.corhuila.property.workflow.application.port.out.Participants.StepUnavailableException;
 import co.edu.corhuila.property.workflow.application.port.out.SagaStore;
 import co.edu.corhuila.property.workflow.domain.saga.SagaInstance;
+import co.edu.corhuila.property.workflow.domain.saga.SagaStep;
 import co.edu.corhuila.property.workflow.domain.saga.UnknownSagaException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -119,6 +121,26 @@ public class RunReservarSaga implements StartReservarSaga, GetSaga {
         }
         store.save(saga);
         return new StartResult(saga, true);
+    }
+
+    /**
+     * HU-SAGA-004: settles a Saga left RUNNING, and never runs a step forward: the body of
+     * the start request, with the card token, was not stored. Without a reservaId it ends
+     * COMPENSATED at crear-reserva; with one it reads the Reserva and the Pago and applies
+     * the table of the fiche. failedStep is the first step not in completedSteps.
+     */
+    public SagaInstance recover(SagaInstance saga) {
+        if (saga.reservaId() == null) {
+            saga.stepFailed(CREAR_RESERVA, "recovered: the request stopped before Booking answered");
+            saga.compensated();
+        } else {
+            SagaStep pending = Arrays.stream(SagaStep.values())
+                    .filter(step -> !saga.completedSteps().contains(step)).findFirst().orElse(CONFIRMAR_RESERVA);
+            saga.stepFailed(pending, "recovered: the request stopped before the step ended");
+            settle(saga);
+        }
+        store.save(saga);
+        return saga;
     }
 
     private void run(SagaInstance saga, IniciarReservar r) {
