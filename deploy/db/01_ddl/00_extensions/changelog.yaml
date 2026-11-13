@@ -1,0 +1,4 @@
+# Deliberately empty. Extensions belong to the whole instance: pgcrypto and
+# btree_gist are created by the start-up script of property-infra-postgres,
+# never by a -db repository (Annex J.4, ADR-008 rule 7).
+databaseChangeLog: []
