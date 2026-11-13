@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: dcl-grants-001
+      author: Stiven700
+      labels: "HU-SAGA-001,dcl,grants"
+      comment: "Least privilege on the workflow schema; workflow_app holds the writer role."
+      changes:
+        - sqlFile:
+            path: 001_grants.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sqlFile:
+            path: ../../05_rollbacks/03_dcl/01_grants/001_grants.rollback.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false

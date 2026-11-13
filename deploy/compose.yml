@@ -1,0 +1,45 @@
+# This service only. property-infra-postgres includes this file to compose the platform.
+
+services:
+  workflow:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      PORT: "3006"
+      # Public key of identity-service, one line with \n escapes. Never versioned.
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?set JWT_PUBLIC_KEY}
+      # The schema workflow of the single PostgreSQL instance, as workflow_app (ADR-010).
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${PG_DATABASE:?set PG_DATABASE}
+      DATABASE_USER: workflow_app
+      DATABASE_PASSWORD: ${WORKFLOW_APP_PASSWORD:?set WORKFLOW_APP_PASSWORD}
+      # Its own credential towards Booking and Payment (D-C14, security-policy.md).
+      SERVICE_TOKEN: ${WORKFLOW_SERVICE_TOKEN:?set WORKFLOW_SERVICE_TOKEN}
+      BOOKING_URL: http://booking-api:3001
+      PAYMENT_URL: http://payment-api:3003
+    # expose, not ports: only the gateway is reachable from the host.
+    expose: ["3006"]
+    networks: [platform]
+
+  # The migration runner of the schema workflow (ADR-010). The instance is shared
+  # and defined in property-infra-postgres; this file defines no database.
+  workflow-db-migrate:
+    image: liquibase/liquibase:4.29
+    profiles: [tooling]             # migrating is a deliberate act: `up` never starts it
+    volumes:
+      - ./db:/workspace:ro
+    entrypoint: ["liquibase",
+      "--search-path=/workspace",
+      "--changelog-file=changelog/changelog-master.yaml",
+      "--url=jdbc:postgresql://postgres:5432/${PG_DATABASE:?set PG_DATABASE}",
+      "--username=${PG_ADMIN_USER:?set PG_ADMIN_USER}",
+      "--password=${PG_ADMIN_PASSWORD:?set PG_ADMIN_PASSWORD}",
+      "--database-changelog-table-name=databasechangelog_workflow",
+      "--database-changelog-lock-table-name=databasechangeloglock_workflow"]
+    command: ["update"]
+    networks: [platform]
+
+networks:
+  platform:
+    name: platform
+    external: true

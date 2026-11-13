@@ -1,0 +1,71 @@
+name: Database rebuild
+
+# The whole changelog must build the schema from an EMPTY database, every rollback
+# must work, and the chain must apply again afterwards (norm 5.2.8, Annex A).
+# The empty database is first prepared the way property-infra-postgres prepares
+# the shared instance: the extensions and the user workflow_app (Annex J.4, J.7).
+# The schema workflow is migrated from deploy/db/ of this repository (ADR-010).
+
+on:
+  pull_request:
+    branches: [develop, qa]
+    paths: ["deploy/db/**", ".github/workflows/db-ci.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: property
+          POSTGRES_USER: property_admin
+          POSTGRES_PASSWORD: ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U property_admin -d property"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare, apply, test, roll everything back, apply again
+        working-directory: deploy/db
+        run: |
+          psql() {
+            docker run --rm -i --network host -e PGPASSWORD=ci-only -v "$PWD:/workspace:ro" \
+              postgres:16-alpine psql -h localhost -U property_admin -d property -v ON_ERROR_STOP=1 "$@"
+          }
+          lb() {
+            docker run --rm --network host -v "$PWD:/workspace:ro" liquibase/liquibase:4.29 \
+              --search-path=/workspace --changelog-file=changelog/changelog-master.yaml \
+              --url=jdbc:postgresql://localhost:5432/property \
+              --username=property_admin --password=ci-only \
+              --database-changelog-table-name=databasechangelog_workflow \
+              --database-changelog-lock-table-name=databasechangeloglock_workflow "$@"
+          }
+          psql <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE ROLE workflow_app LOGIN PASSWORD 'ci-only';
+          ALTER ROLE workflow_app SET search_path = workflow;
+          SQL
+          lb update
+          lb update | tee second.txt
+          grep -q "Run:  *0" second.txt || { echo "second update applied changes: not incremental"; exit 1; }
+          for test in tests/*.sql; do
+            [ -e "$test" ] || continue
+            echo "== $test"
+            psql -f "/workspace/$test"
+          done
+          lb rollback-count 999
+          left=$(psql -tA -c "SELECT (SELECT count(*) FROM pg_namespace WHERE nspname = 'workflow')
+                                   + (SELECT count(*) FROM pg_roles WHERE rolname IN ('workflow_reader', 'workflow_writer'))")
+          [ "$left" = "0" ] || { echo "rollback left the schema or the roles behind"; exit 1; }
+          lb update

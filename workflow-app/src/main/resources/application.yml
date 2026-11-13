@@ -1,0 +1,40 @@
+server:
+  port: ${PORT:3006}            # workflow:3006 inside the network platform (deployment.md)
+  shutdown: graceful            # stop accepting, let in-flight requests finish
+  tomcat:
+    connection-timeout: 5s      # time to receive the request line and headers
+    keep-alive-timeout: 60s
+    threads:
+      max: 200
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  autoconfigure:
+    # The pool is built in WorkflowConfiguration (the composition root), not by auto-configuration.
+    exclude: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+logging:
+  structured:
+    format:
+      console: ecs              # one JSON object per line; the MDC adds correlationId
+workflow:
+  # postgres (default) or memory. memory is for tests and local development only, never an
+  # environment (norm 5.5.2): nothing persists. postgres without DATABASE_URL does not start.
+  persistence: ${PERSISTENCE:postgres}
+  database:
+    # The schema workflow: migrated by workflow-db-migrate from deploy/db, never by the service.
+    url: ${DATABASE_URL:}
+    user: ${DATABASE_USER:}
+    password: ${DATABASE_PASSWORD:}
+    pool-max: ${DB_POOL_MAX:10}
+    statement-timeout-ms: ${DB_STATEMENT_TIMEOUT_MS:5000}
+  # The limit of POST /sagas/reservar: then it answers the Saga still RUNNING (HU-SAGA-004).
+  request-timeout-ms: ${REQUEST_TIMEOUT_MS:25000}
+  participants:
+    # Booking and Payment, inside the network platform. The workflow calls them with its
+    # own service token (SERVICE_TOKEN), never with the token of the guest.
+    booking-url: ${BOOKING_URL:http://booking-api:3001}
+    payment-url: ${PAYMENT_URL:http://payment-api:3003}
+    service-token: ${SERVICE_TOKEN:}
+    timeout-ms: ${PARTICIPANT_TIMEOUT_MS:10000}   # each call: longer than Payment's 8 s for a charge
+    max-attempts: ${PARTICIPANT_MAX_ATTEMPTS:2}   # only after no answer, 429 or 5xx; never after a 4xx
+    backoff-ms: ${PARTICIPANT_BACKOFF_MS:200}

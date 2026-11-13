@@ -1,0 +1,294 @@
+openapi: 3.0.3
+info:
+  title: Shared Components
+  version: 3.0.0
+  description: |
+    Schemas and components shared by every API contract of the Pms_Property
+    project. Reference them from a contract with:
+    $ref: './_shared.yaml#/components/...'
+
+    Do not redefine ErrorResponse, pagination, UUID, Timestamp, AuditFields
+    or the bearerAuth security scheme in a service contract — always
+    reference this file.
+
+    Two headers apply to EVERY operation of every contract and are not
+    repeated on each one: `X-Correlation-Id`, on the request and on the
+    response (see CorrelationIdHeader), and the error envelope for any
+    status of 400 or above.
+
+    > **Version 3.0.0 — descriptions in English and service credentials.**
+    > Descriptions are written in English, as
+    > 00-governance/documentation-rules.md requires for OpenAPI contracts.
+    > Field names and enum values that mirror the domain stay in Spanish.
+    > The single error envelope and money as an integer in cents come from the
+    > course norm (numeral 5.3.5) — see 07-api/guidelines.md, D-C5 to D-C8.
+
+paths: {}
+
+components:
+  schemas:
+    # ─── Pagination ───────────────────────────────────────────────────────────
+    PaginatedMeta:
+      type: object
+      description: >
+        Pagination metadata included in every list response (norm 5.3.6).
+        The default page size is 20 and the maximum is 100. Stable order:
+        most recent first, unless the endpoint documents otherwise.
+      required: [page, limit, total, totalPages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        limit:
+          type: integer
+          description: The page size that was served — see LimitParam.
+          minimum: 1
+          maximum: 100
+          default: 20
+          example: 20
+        total:
+          type: integer
+          description: Total number of records that match the filter
+          example: 142
+        totalPages:
+          type: integer
+          example: 8
+
+    # ─── Errors — ONE envelope, norm 5.3.5 ────────────────────────────────────
+    ErrorResponse:
+      type: object
+      description: >
+        The single error envelope of EVERY endpoint, including unknown routes
+        (404) and malformed JSON — norm 5.3.5. No other error shape exists in
+        this project. The detail of a business-rule violation goes in
+        `message`; it never changes the shape of the envelope.
+      required: [error, message, traceId]
+      properties:
+        error:
+          type: string
+          description: >
+            A FIXED code, one of exactly these — norm 5.3.5. No service and
+            no invariant adds a code of its own.
+          enum:
+            - VALIDATION_ERROR
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - INVALID_STATUS_TRANSITION
+            - BUSINESS_RULE_VIOLATION
+            - INTERNAL_ERROR
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: >
+            Human-readable message. The specific detail goes here (e.g. "the
+            dates overlap reservation X"), never in an extra field of the
+            envelope. It never exposes a driver message, a stack trace or
+            an internal server name — those go to the log, referenced by
+            traceId.
+          example: the request has invalid fields
+        details:
+          type: array
+          description: One entry per invalid field. Only for VALIDATION_ERROR.
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                example: fechaFin
+              message:
+                type: string
+                example: must be after fechaInicio
+        traceId:
+          type: string
+          description: >
+            Always present. Equal to the X-Correlation-Id of the request
+            (norm 5.3.9). For a request that is part of a Saga it is also the
+            `metadata.correlationId` of the events published during it
+            (02-domain/domain-events.md).
+          example: 550e8400-e29b-41d4-a716-446655440000
+
+    # ─── Common types ─────────────────────────────────────────────────────────
+    UUID:
+      type: string
+      format: uuid
+      example: 550e8400-e29b-41d4-a716-446655440000
+
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339, always in UTC (norm 5.3.5)
+      example: '2026-09-10T14:30:00Z'
+
+    AuditFields:
+      type: object
+      description: >
+        Audit fields of a resource that can change. An immutable resource
+        (a Pago, a Reembolso) declares only `createdAt` itself.
+      required: [createdAt, updatedAt]
+      properties:
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+
+  # ─── Reusable parameters ─────────────────────────────────────────────────
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number, starting at 1
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    LimitParam:
+      name: limit
+      in: query
+      description: >
+        Number of results per page, from 1 to 100. Without `limit`, 20 are
+        served. A value out of range is rejected with `400 VALIDATION_ERROR`
+        (norm 5.3.6) — a list is never unbounded.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    IdParam:
+      name: id
+      in: path
+      required: true
+      description: Identifier of the resource (UUID). A malformed id is `400 VALIDATION_ERROR`.
+      schema:
+        $ref: '#/components/schemas/UUID'
+
+    CorrelationIdHeader:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: >
+        Reused if it arrives, generated if it does not (norm 5.3.9). The
+        service returns it in the response, writes it on every line of its
+        structured log, and uses it as the `traceId` of the error envelope.
+        Any string is accepted as it arrives; a generated one is a UUID.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >
+        Mandatory on EVERY operation that creates a resource (norm 5.3.8),
+        8 to 128 characters. Repeating the request with the same key returns
+        the resource already created (200, not 201 again) and creates
+        nothing. A step of the Saga sends `<sagaId>:<stepId>`.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+
+  # ─── Reusable responses ──────────────────────────────────────────────────
+  responses:
+    BadRequest:
+      description: The shape of the input is invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: VALIDATION_ERROR
+            message: the request has invalid fields
+            details:
+              - field: limit
+                message: must be between 1 and 100
+            traceId: 550e8400-e29b-41d4-a716-446655440000
+
+    Unauthorized:
+      description: The token is missing, invalid or expired
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: UNAUTHORIZED
+            message: a valid token is required
+            traceId: 550e8400-e29b-41d4-a716-446655440000
+
+    Forbidden:
+      description: The token is valid but does not allow this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: FORBIDDEN
+            message: this credential is not allowed to perform the operation
+            traceId: 550e8400-e29b-41d4-a716-446655440000
+
+    NotFound:
+      description: The resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: NOT_FOUND
+            message: the resource does not exist
+            traceId: 550e8400-e29b-41d4-a716-446655440000
+
+    InvalidStatusTransition:
+      description: 422 — the resource is not in a state that allows this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: INVALID_STATUS_TRANSITION
+            message: the resource is not in a state that allows this operation
+            traceId: 550e8400-e29b-41d4-a716-446655440000
+
+    BusinessRuleViolation:
+      description: 422 — the request violates a business rule or invariant
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: BUSINESS_RULE_VIOLATION
+            message: the operation violates a business rule
+            traceId: 550e8400-e29b-41d4-a716-446655440000
+
+    InternalError:
+      description: Unhandled error, or a dependency that did not answer. The message is neutral; the detail is only in the log.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: INTERNAL_ERROR
+            message: internal server error
+            traceId: 550e8400-e29b-41d4-a716-446655440000
+
+  # ─── Security ────────────────────────────────────────────────────────────
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        A JWT signed with RS256 by identity-service, sent as
+        `Authorization: Bearer <token>`. Every service validates the token
+        itself with Identity's public key and rejects any other algorithm,
+        including `none` and `HS256`. `exp` and `sub` are mandatory. No
+        service holds the private key or a shared secret.
+
+        Two kinds of token use this scheme (07-api/guidelines.md, D-C14):
+        - a person's token, with the claim `roles` (`GUEST`, `HOST` or `ADMIN`);
+        - a service token, with the claim `scope: service`, used by
+          property-workflow and property-worker.
